@@ -468,22 +468,19 @@ _LOCATION_PATTERNS = _compile_keyword_patterns(LOCATIONS)
 
 def detect_disease(title, content=""):
     """
-    Logika deteksi penyakit — STRICT, CUMA DARI JUDUL, TIDAK LIHAT ISI ARTIKEL:
-      1. Cari keyword (WHOLE-WORD — harus diapit spasi/batas kata di kiri-kanan,
-         bukan potongan kata; "isk" TIDAK match di "miskin") di JUDUL.
+    Logika deteksi penyakit:
+      1. Cari keyword (WHOLE-WORD — harus diapit spasi/batas kata, bukan
+         potongan kata; "isk" TIDAK match di "miskin") di JUDUL.
       2. Kalau judul cocok dengan keyword dari TEPAT 1 kategori → itu yang dipilih.
-      3. Kalau judul cocok dengan keyword dari 2+ KATEGORI BERBEDA (misal judul
-         nyebut "diare" sekaligus "tifus") → AMBIL KATEGORI YANG KEYWORD-NYA
-         MUNCUL PALING DEPAN (paling kiri) di judul. Bukan dari isi artikel.
-      4. Kalau judul TIDAK match keyword apa pun → langsung "Umum / Lainnya".
-         Parameter `content` SENGAJA TIDAK DIPAKAI SAMA SEKALI di sini (cuma
-         dipertahankan di signature biar pemanggil lain nggak perlu diubah) —
-         karena isi artikel sering nyebut nama penyakit cuma sebagai
-         CONTOH/SAMPINGAN (misal artikel JKN/BPJS yang nyebut "infeksi saluran
-         kemih" sebagai salah satu layanan yang ditanggung), padahal artikelnya
-         sendiri BUKAN tentang penyakit itu. Judul jauh lebih representatif.
+      3. Kalau judul cocok dengan keyword dari 2+ KATEGORI BERBEDA → hitung
+         frekuensi kemunculan keyword tiap kategori di ISI ARTIKEL (whole-word,
+         exact, kiri-kanan harus spasi/batas kata). Ambil kategori yang
+         keyword-nya muncul PALING BANYAK di isi.
+      4. Kalau frekuensi di isi sama (atau isi kosong) → fallback ke posisi
+         paling kiri di judul (logic lama).
+      5. Kalau judul TIDAK match keyword apa pun → "Umum / Lainnya".
     """
-    # Cari posisi kemunculan PALING AWAL dari tiap kategori yang match di judul.
+    # Cari semua kategori yang match di judul + posisi kemunculan paling awal.
     earliest_pos_per_category = {}
     for d, patterns in _DISEASE_PATTERNS.items():
         best_pos = None
@@ -497,7 +494,26 @@ def detect_disease(title, content=""):
     if not earliest_pos_per_category:
         return "Umum / Lainnya"
 
-    # Kategori dengan posisi kemunculan paling kecil (paling depan di judul) menang.
+    # Hanya 1 kategori match di judul → langsung return.
+    if len(earliest_pos_per_category) == 1:
+        return next(iter(earliest_pos_per_category))
+
+    # 2+ kategori match di judul → hitung frekuensi di isi artikel.
+    if content:
+        freq_per_category = {
+            d: _count_keyword_matches(_DISEASE_PATTERNS[d], content)
+            for d in earliest_pos_per_category
+        }
+        max_freq = max(freq_per_category.values())
+        if max_freq > 0:
+            # Ambil semua kandidat dengan frekuensi tertinggi.
+            top_candidates = [d for d, f in freq_per_category.items() if f == max_freq]
+            if len(top_candidates) == 1:
+                return top_candidates[0]
+            # Masih seri setelah hitung frekuensi → fallback posisi judul.
+            return min(top_candidates, key=lambda d: earliest_pos_per_category[d])
+
+    # Isi kosong atau semua frekuensi 0 → fallback posisi paling kiri di judul.
     return min(earliest_pos_per_category, key=earliest_pos_per_category.get)
 
 def detect_location(t):
