@@ -1,0 +1,35 @@
+name: Health News Scraper — Auto Update
+
+on:
+  # Tanggal 28: untuk Februari (bulan pendek)
+  # Tanggal 30: untuk bulan-bulan lain
+  # Logika skip ada di run_and_push.py supaya tidak double-run
+  schedule:
+    - cron: "0 18 28 * *"   # tiap tanggal 28, jam 01:00 WIB
+    - cron: "0 18 30 * *"   # tiap tanggal 30, jam 01:00 WIB
+
+  # Bisa juga trigger manual dari tab Actions di GitHub
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120    # scraping bisa makan waktu, kasih 2 jam
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper & push to HF
+        env:
+          HF_TOKEN:        ${{ secrets.HF_TOKEN }}
+          HF_DATASET_REPO: ${{ secrets.HF_DATASET_REPO }}
+        run: python run_and_push.py
