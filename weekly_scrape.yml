@@ -1,0 +1,80 @@
+name: Weekly Health News Scraper
+
+on:
+  # Setiap Minggu jam 22:00 WIB = 15:00 UTC (sebelum ganti minggu)
+  schedule:
+    - cron: "0 15 * * 0"   # 0=Minggu, jam 15:00 UTC
+
+  # Bisa di-trigger manual dari tab Actions (untuk testing)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (scrape tapi tidak upload ke HF)?"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  scrape-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120   # max 2 jam, cukup untuk scrape mingguan
+
+    steps:
+      # ── 1. Checkout repo ─────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Python ───────────────────────────────────────────────────
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. Install dependencies ───────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            requests \
+            feedparser \
+            beautifulsoup4 \
+            lxml \
+            python-dateutil \
+            tqdm \
+            pandas \
+            huggingface-hub
+
+      # ── 4. Jalankan weekly scraper ────────────────────────────────────────
+      - name: Run weekly scraper
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          python weekly_scraper.py
+
+      # ── 5. Upload artifact (backup lokal CSV) ─────────────────────────────
+      - name: Upload CSV as GitHub artifact (backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health_news_weekly_${{ github.run_id }}
+          path: health_news.csv
+          retention-days: 30
+
+      # ── 6. Summary di GitHub Actions log ─────────────────────────────────
+      - name: Print summary
+        if: always()
+        run: |
+          if [ -f health_news.csv ]; then
+            echo "### Weekly Scrape Result" >> $GITHUB_STEP_SUMMARY
+            echo "- CSV size: $(du -sh health_news.csv | cut -f1)" >> $GITHUB_STEP_SUMMARY
+            echo "- Row count: $(wc -l < health_news.csv) lines" >> $GITHUB_STEP_SUMMARY
+            echo "- Run date: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ CSV tidak ditemukan" >> $GITHUB_STEP_SUMMARY
+          fi
